@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:async';
+import 'package:file_picker/file_picker.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import '../config/app_colors.dart';
 import '../providers/printer_provider.dart';
 import '../services/file_service.dart';
@@ -15,6 +18,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final FileService _fileService = FileService();
+  StreamSubscription? _intentDataStreamSubscription;
+  List<SharedMediaFile>? _sharedFiles;
 
   @override
   void initState() {
@@ -23,6 +28,65 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<PrinterProvider>().init();
     });
+
+    // Initialize sharing intent listener
+    _initSharingListener();
+  }
+
+  @override
+  void dispose() {
+    _intentDataStreamSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _initSharingListener() {
+    // For sharing images coming from outside the app while the app is in the memory
+    _intentDataStreamSubscription =
+        ReceiveSharingIntent.instance.getMediaStream().listen(
+      (List<SharedMediaFile> value) {
+        setState(() {
+          _sharedFiles = value;
+        });
+        _handleSharedFiles(value);
+      },
+      onError: (err) {
+        debugPrint("getIntentDataStream error: $err");
+      },
+    );
+
+    // For sharing images coming from outside the app while the app is closed
+    ReceiveSharingIntent.instance
+        .getInitialMedia()
+        .then((List<SharedMediaFile> value) {
+      setState(() {
+        _sharedFiles = value;
+      });
+      _handleSharedFiles(value);
+    });
+  }
+
+  void _handleSharedFiles(List<SharedMediaFile> files) {
+    if (files.isEmpty) return;
+
+    // Take the first file
+    final file = files.first;
+
+    // Create PlatformFile from SharedMediaFile
+    final platformFile = PlatformFile(
+      path: file.path,
+      name: file.path.split('/').last,
+      size: 0, // Size is not strictly required for file opening by path
+      bytes: null,
+      readStream: null,
+    );
+
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PrintDocumentScreen(file: platformFile),
+        ),
+      );
+    }
   }
 
   Future<void> _pickFileAndNavigate() async {
@@ -61,8 +125,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   IconButton(
                     onPressed: () {
-                      // Show help dialog
-                      _showHelpDialog();
+                      // Show app info dialog
+                      _showAppInfoDialog();
                     },
                     icon: Container(
                       padding: const EdgeInsets.all(8),
@@ -83,13 +147,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 24),
 
-              // Main action card - Print Invoice
-              _buildPrintInvoiceCard(),
+              // 1. Cara Pakai
+              _buildHelpCard(),
 
               const SizedBox(height: 16),
 
-              // Connect Printer card
+              // 2. Connect Printer card
               _buildConnectPrinterCard(),
+
+              const SizedBox(height: 16),
+
+              // 3. Main action card - Print Invoice
+              _buildPrintInvoiceCard(),
 
               const Spacer(),
 
@@ -336,6 +405,103 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const Text('Mengerti'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showAppInfoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: AppColors.primary),
+            SizedBox(width: 8),
+            Text('Tentang Aplikasi'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pencet Print',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text('Sekali Pencet, Langsung Print.'),
+            SizedBox(height: 16),
+            Text('Versi: 1.0.0'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpCard() {
+    return InkWell(
+      onTap: _showHelpDialog,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.menu_book_rounded,
+                color: AppColors.primary,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cara Pakai',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Panduan penggunaan aplikasi',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.textLight,
+              size: 24,
+            ),
+          ],
+        ),
       ),
     );
   }

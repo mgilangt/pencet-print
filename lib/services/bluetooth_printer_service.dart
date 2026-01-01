@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:image/image.dart' as img;
+import 'package:permission_handler/permission_handler.dart';
 import '../models/printer_model.dart';
 
 class BluetoothPrinterService {
@@ -20,11 +23,59 @@ class BluetoothPrinterService {
     return await PrintBluetoothThermal.bluetoothEnabled;
   }
 
+  /// Request Bluetooth permissions for Android 12+
+  Future<bool> _requestBluetoothPermissions() async {
+    if (!Platform.isAndroid) return true;
+
+    // Request all Bluetooth permissions for Android 12+
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.bluetooth,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+    ].request();
+
+    // Check if all critical permissions are granted
+    bool bluetoothGranted = statuses[Permission.bluetooth]?.isGranted ?? false;
+    bool scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? false;
+    bool connectGranted =
+        statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+    bool locationGranted =
+        statuses[Permission.locationWhenInUse]?.isGranted ?? false;
+
+    debugPrint('Bluetooth permissions status:');
+    debugPrint('  bluetooth: $bluetoothGranted');
+    debugPrint('  bluetoothScan: $scanGranted');
+    debugPrint('  bluetoothConnect: $connectGranted');
+    debugPrint('  location: $locationGranted');
+
+    // For Android 12+, we need scan and connect
+    // For older Android, we need location
+    return (scanGranted && connectGranted) || locationGranted;
+  }
+
   Future<List<PrinterModel>> scanDevices(
       {Duration timeout = const Duration(seconds: 4)}) async {
     List<PrinterModel> printers = [];
 
     try {
+      // Request permissions first (critical for Snapdragon 685 / Android 12+)
+      final hasPermission = await _requestBluetoothPermissions();
+      if (!hasPermission) {
+        debugPrint('Bluetooth permissions not granted');
+        return printers;
+      }
+
+      // Check if Bluetooth is enabled
+      final isEnabled = await PrintBluetoothThermal.bluetoothEnabled;
+      if (!isEnabled) {
+        debugPrint('Bluetooth is not enabled');
+        return printers;
+      }
+
+      // Add delay for chipset compatibility (Snapdragon 685 needs more time)
+      await Future.delayed(const Duration(milliseconds: 500));
+
       final devices = await PrintBluetoothThermal.pairedBluetooths;
 
       for (var device in devices) {
@@ -35,9 +86,9 @@ class BluetoothPrinterService {
         ));
       }
 
-      print('Found ${printers.length} paired devices');
+      debugPrint('Found ${printers.length} paired devices');
     } catch (e) {
-      print('Error scanning devices: $e');
+      debugPrint('Error scanning devices: $e');
     }
 
     return printers;
