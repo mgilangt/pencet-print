@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class PrimaryButton extends StatelessWidget {
   final String text;
@@ -33,7 +35,7 @@ class PrimaryButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: backgroundColor ?? AppColors.primary,
           foregroundColor: textColor ?? Colors.white,
-          disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
+          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
@@ -87,14 +89,23 @@ class SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return SizedBox(
       width: width ?? double.infinity,
       height: height,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.textPrimary,
-          side: const BorderSide(color: AppColors.border, width: 1.5),
+          foregroundColor: isDark ? Colors.white : AppColors.textPrimary,
+          backgroundColor:
+              isDark ? AppColors.cardBackgroundDark : Colors.transparent,
+          side: BorderSide(
+            color: isDark
+                ? AppColors.primary.withValues(alpha: 0.5)
+                : AppColors.border,
+            width: isDark ? 2 : 1.5,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -103,14 +114,19 @@ class SecondaryButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 20, color: AppColors.textSecondary),
+              Icon(
+                icon,
+                size: 20,
+                color: isDark ? AppColors.primary : AppColors.textSecondary,
+              ),
               const SizedBox(width: 8),
             ],
             Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white : AppColors.textPrimary,
               ),
             ),
           ],

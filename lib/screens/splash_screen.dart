@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
 import '../config/app_constants.dart';
+import '../providers/theme_provider.dart';
+import '../services/bluetooth_printer_service.dart';
+import '../services/settings_service.dart';
 import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -14,6 +18,8 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _progressAnimation;
+  final BluetoothPrinterService _bluetoothService = BluetoothPrinterService();
+  final SettingsService _settingsService = SettingsService();
 
   @override
   void initState() {
@@ -30,14 +36,33 @@ class _SplashScreenState extends State<SplashScreen>
 
     _animationController.forward();
 
-    // Navigate to home after splash
-    Future.delayed(AppConstants.splashDuration, () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-      }
-    });
+    // Initialize app and request permissions
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Initialize theme
+    if (mounted) {
+      await context.read<ThemeProvider>().init();
+    }
+
+    // Check if permissions have been granted before
+    final permissionsGranted = await _settingsService.getPermissionsGranted();
+
+    if (!permissionsGranted) {
+      // First time opening app - request permissions
+      final granted = await _bluetoothService.requestBluetoothPermissions();
+      await _settingsService.setPermissionsGranted(granted);
+    }
+
+    // Wait for splash animation to complete
+    await Future.delayed(AppConstants.splashDuration);
+
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
+    }
   }
 
   @override
@@ -57,7 +82,7 @@ class _SplashScreenState extends State<SplashScreen>
             children: [
               const Spacer(flex: 2),
 
-              // Logo
+              // Logo - rounded widget style
               Container(
                 width: 120,
                 height: 120,
@@ -66,7 +91,7 @@ class _SplashScreenState extends State<SplashScreen>
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.primary.withOpacity(0.3),
+                      color: AppColors.primary.withValues(alpha: 0.3),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),

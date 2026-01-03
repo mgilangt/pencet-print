@@ -6,10 +6,12 @@ import 'package:pdfx/pdfx.dart';
 import '../config/app_colors.dart';
 import '../providers/printer_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/file_service.dart';
 import '../widgets/file_preview_card.dart';
 import '../widgets/paper_size_selector.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/custom_dialog.dart';
 import 'printing_status_screen.dart';
 import 'printer_setup_screen.dart';
 
@@ -80,46 +82,35 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
     }
   }
 
-  void _navigateToPrint() {
+  Future<void> _navigateToPrint() async {
     final printerProvider = context.read<PrinterProvider>();
     final settingsProvider = context.read<SettingsProvider>();
 
-    if (!printerProvider.isConnected) {
-      // Show dialog to connect printer first
-      showDialog(
+    // Reload settings to ensure we have the latest paper size
+    await settingsProvider.reload();
+
+    // Verify actual Bluetooth connection (not just variable state)
+    final isConnectionValid = await printerProvider.verifyConnection();
+
+    if (!printerProvider.isConnected || !isConnectionValid) {
+      if (!mounted) return;
+      // Show warning dialog
+      CustomDialog.showWarning(
         context: context,
-        builder: (context) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: AppColors.warning),
-              SizedBox(width: 8),
-              Text('Printer Belum Terhubung'),
-            ],
-          ),
-          content: const Text(
-              'Silakan hubungkan printer Bluetooth terlebih dahulu.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrinterSetupScreen()),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-              ),
-              child: const Text('Hubungkan Printer'),
-            ),
-          ],
-        ),
+        title: 'Printer Tidak Terhubung!',
+        message:
+            'Koneksi terputus. Pastikan printer menyala dan bluetooth di HP Anda sudah aktif.',
+        primaryButtonText: 'Mengerti',
+        primaryButtonIcon: Icons.check_rounded,
+        secondaryButtonText: 'Cek Pengaturan',
+        onPrimaryPressed: () => Navigator.pop(context),
+        onSecondaryPressed: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PrinterSetupScreen()),
+          );
+        },
       );
       return;
     }
@@ -146,16 +137,22 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.getBackground(isDark),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.getCardBackground(isDark),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: Icon(Icons.arrow_back_rounded,
+              color: AppColors.getTextPrimary(isDark)),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Print Document'),
+        title: Text(
+          'Print Document',
+          style: TextStyle(color: AppColors.getTextPrimary(isDark)),
+        ),
         centerTitle: true,
       ),
       body: Column(
@@ -167,12 +164,12 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Selected file section
-                  const Text(
+                  Text(
                     'File Dipilih',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+                      color: AppColors.getTextSecondary(isDark),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -187,40 +184,40 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                   const SizedBox(height: 24),
 
                   // Preview section
-                  const Text(
+                  Text(
                     'Preview',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+                      color: AppColors.getTextSecondary(isDark),
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildPreview(),
+                  _buildPreview(isDark),
 
                   const SizedBox(height: 24),
 
                   // Printer settings section
-                  const Text(
+                  Text(
                     'Pengaturan Printer',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+                      color: AppColors.getTextSecondary(isDark),
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildPrinterDropdown(),
+                  _buildPrinterDropdown(isDark),
 
                   const SizedBox(height: 16),
 
                   // Paper size
-                  const Text(
+                  Text(
                     'Ukuran Kertas',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+                      color: AppColors.getTextSecondary(isDark),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -237,38 +234,41 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                   const SizedBox(height: 16),
 
                   // Copies
-                  const Text(
+                  Text(
                     'Jumlah Cetak',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+                      color: AppColors.getTextSecondary(isDark),
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildCopiesCounter(),
+                  _buildCopiesCounter(isDark),
                 ],
               ),
             ),
           ),
 
           // Print button
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 10,
-                  offset: Offset(0, -2),
-                ),
-              ],
-            ),
-            child: PrimaryButton(
-              text: 'PRINT INVOICE',
-              icon: Icons.print_rounded,
-              onPressed: _navigateToPrint,
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.getCardBackground(isDark),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark ? Colors.black26 : Colors.black12,
+                    blurRadius: 10,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: PrimaryButton(
+                text: 'PRINT',
+                icon: Icons.print_rounded,
+                onPressed: _navigateToPrint,
+              ),
             ),
           ),
         ],
@@ -276,14 +276,14 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
     );
   }
 
-  Widget _buildPreview() {
+  Widget _buildPreview(bool isDark) {
     return Container(
       width: double.infinity,
       height: 240,
       decoration: BoxDecoration(
-        color: const Color(0xFFF5E6D3),
+        color: isDark ? AppColors.cardBackgroundDark : const Color(0xFFF5E6D3),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.getBorder(isDark)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -296,15 +296,16 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                     _previewBytes!,
                     fit: BoxFit.contain,
                   )
-                : const Center(
+                : Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.image_not_supported_rounded,
-                            size: 48, color: AppColors.textLight),
-                        SizedBox(height: 8),
+                            size: 48, color: AppColors.getTextLight(isDark)),
+                        const SizedBox(height: 8),
                         Text('Preview tidak tersedia',
-                            style: TextStyle(color: AppColors.textSecondary)),
+                            style: TextStyle(
+                                color: AppColors.getTextSecondary(isDark))),
                       ],
                     ),
                   ),
@@ -312,7 +313,7 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
     );
   }
 
-  Widget _buildPrinterDropdown() {
+  Widget _buildPrinterDropdown(bool isDark) {
     return Consumer<PrinterProvider>(
       builder: (context, provider, _) {
         return InkWell(
@@ -326,9 +327,9 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
           child: Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppColors.getCardBackground(isDark),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: AppColors.getBorder(isDark)),
             ),
             child: Row(
               children: [
@@ -336,14 +337,14 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: AppColors.background,
+                    color: AppColors.getBackground(isDark),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     Icons.print_rounded,
                     color: provider.isConnected
                         ? AppColors.primary
-                        : AppColors.textSecondary,
+                        : AppColors.getTextSecondary(isDark),
                     size: 22,
                   ),
                 ),
@@ -356,10 +357,10 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                         provider.isConnected
                             ? provider.connectedPrinter!.name
                             : 'Pilih Printer',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
+                          color: AppColors.getTextPrimary(isDark),
                         ),
                       ),
                       if (provider.isConnected)
@@ -380,9 +381,9 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
                     ],
                   ),
                 ),
-                const Icon(
+                Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.textSecondary,
+                  color: AppColors.getTextSecondary(isDark),
                 ),
               ],
             ),
@@ -392,13 +393,13 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
     );
   }
 
-  Widget _buildCopiesCounter() {
+  Widget _buildCopiesCounter(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.getCardBackground(isDark),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.getBorder(isDark)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -408,13 +409,14 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: AppColors.background,
+                color: AppColors.getBackground(isDark),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 Icons.remove_rounded,
-                color:
-                    _copies > 1 ? AppColors.textPrimary : AppColors.textLight,
+                color: _copies > 1
+                    ? AppColors.getTextPrimary(isDark)
+                    : AppColors.getTextLight(isDark),
                 size: 20,
               ),
             ),
@@ -422,10 +424,10 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
           const SizedBox(width: 24),
           Text(
             '$_copies',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
+              color: AppColors.getTextPrimary(isDark),
             ),
           ),
           const SizedBox(width: 24),
@@ -434,13 +436,14 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: AppColors.background,
+                color: AppColors.getBackground(isDark),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 Icons.add_rounded,
-                color:
-                    _copies < 10 ? AppColors.textPrimary : AppColors.textLight,
+                color: _copies < 10
+                    ? AppColors.getTextPrimary(isDark)
+                    : AppColors.getTextLight(isDark),
                 size: 20,
               ),
             ),

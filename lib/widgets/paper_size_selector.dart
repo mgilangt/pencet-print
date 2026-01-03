@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
 import '../config/app_constants.dart';
+import '../providers/theme_provider.dart';
 
 class PaperSizeSelector extends StatelessWidget {
   final int selectedSize;
@@ -16,6 +18,8 @@ class PaperSizeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Row(
       children: [
         Expanded(
@@ -24,6 +28,7 @@ class PaperSizeSelector extends StatelessWidget {
             label: showLabels ? 'Receipt' : null,
             isSelected: selectedSize == AppConstants.paperSize58mm,
             onTap: () => onChanged?.call(AppConstants.paperSize58mm),
+            isDark: isDark,
           ),
         ),
         const SizedBox(width: 12),
@@ -33,6 +38,7 @@ class PaperSizeSelector extends StatelessWidget {
             label: showLabels ? 'Invoice' : null,
             isSelected: selectedSize == AppConstants.paperSize80mm,
             onTap: () => onChanged?.call(AppConstants.paperSize80mm),
+            isDark: isDark,
           ),
         ),
       ],
@@ -45,12 +51,14 @@ class _PaperSizeCard extends StatelessWidget {
   final String? label;
   final bool isSelected;
   final VoidCallback? onTap;
+  final bool isDark;
 
   const _PaperSizeCard({
     required this.size,
     this.label,
     required this.isSelected,
     this.onTap,
+    required this.isDark,
   });
 
   @override
@@ -61,10 +69,12 @@ class _PaperSizeCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary.withOpacity(0.1) : Colors.white,
+          color: isSelected
+              ? AppColors.primary.withValues(alpha: 0.1)
+              : AppColors.getCardBackground(isDark),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
+            color: isSelected ? AppColors.primary : AppColors.getBorder(isDark),
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -72,7 +82,9 @@ class _PaperSizeCard extends StatelessWidget {
           children: [
             Icon(
               Icons.receipt_long_rounded,
-              color: isSelected ? AppColors.primary : AppColors.textSecondary,
+              color: isSelected
+                  ? AppColors.primary
+                  : AppColors.getTextSecondary(isDark),
               size: 28,
             ),
             const SizedBox(height: 8),
@@ -81,7 +93,9 @@ class _PaperSizeCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                color: isSelected
+                    ? AppColors.primary
+                    : AppColors.getTextPrimary(isDark),
               ),
             ),
             if (label != null) ...[
@@ -90,8 +104,9 @@ class _PaperSizeCard extends StatelessWidget {
                 label!,
                 style: TextStyle(
                   fontSize: 12,
-                  color:
-                      isSelected ? AppColors.primary : AppColors.textSecondary,
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.getTextSecondary(isDark),
                 ),
               ),
             ],

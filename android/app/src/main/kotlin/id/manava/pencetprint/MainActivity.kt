@@ -1,4 +1,4 @@
-package com.pencetprint.pencet_print
+package id.manava.pencetprint
 
 import io.flutter.embedding.android.FlutterActivity
 

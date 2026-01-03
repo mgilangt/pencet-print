@@ -37,6 +37,28 @@ class SettingsService {
         AppConstants.paperSize80mm;
   }
 
+  // Permissions status
+  Future<void> setPermissionsGranted(bool granted) async {
+    await init();
+    await _prefs!.setBool(AppConstants.keyPermissionsGranted, granted);
+  }
+
+  Future<bool> getPermissionsGranted() async {
+    await init();
+    return _prefs!.getBool(AppConstants.keyPermissionsGranted) ?? false;
+  }
+
+  // Dark mode
+  Future<void> setDarkMode(bool isDark) async {
+    await init();
+    await _prefs!.setBool(AppConstants.keyDarkMode, isDark);
+  }
+
+  Future<bool> getDarkMode() async {
+    await init();
+    return _prefs!.getBool(AppConstants.keyDarkMode) ?? false;
+  }
+
   // Clear all settings
   Future<void> clearAll() async {
     await init();

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
 import '../providers/printer_provider.dart';
+import '../providers/theme_provider.dart';
 import '../widgets/primary_button.dart';
 
 enum PrintStatus {
@@ -63,8 +64,42 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
     final printerProvider = context.read<PrinterProvider>();
 
     // Simulate connection phase
-    await _simulateProgress(0, 30, 'Menghubungkan ke printer thermal...');
+    await _simulateProgress(0, 20, 'Memeriksa koneksi printer...');
     if (_isCancelled) return;
+
+    // Verify actual Bluetooth connection (not just variable state)
+    final isConnectionValid = await printerProvider.verifyConnection();
+
+    if (!isConnectionValid) {
+      // Connection is stale or Bluetooth is off
+      if (mounted) {
+        final isBluetoothOn =
+            await printerProvider.printerService.isBluetoothAvailable();
+        setState(() {
+          _status = PrintStatus.failed;
+          _statusMessage = isBluetoothOn
+              ? 'Koneksi printer terputus. Hubungkan ulang dan coba lagi.'
+              : 'Bluetooth dimatikan. Nyalakan dan coba lagi.';
+        });
+        _animationController.stop();
+      }
+      return;
+    }
+
+    await _simulateProgress(20, 30, 'Menghubungkan ke printer thermal...');
+    if (_isCancelled) return;
+
+    // Double check connection status
+    if (!printerProvider.isConnected) {
+      if (mounted) {
+        setState(() {
+          _status = PrintStatus.failed;
+          _statusMessage = 'Koneksi terputus. Hubungkan ulang printer.';
+        });
+        _animationController.stop();
+      }
+      return;
+    }
 
     setState(() {
       _status = PrintStatus.printing;
@@ -86,13 +121,18 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
           paperWidth: widget.paperSize,
         );
 
-        if (!success) break;
+        if (!success) {
+          // Print failed - mark connection as stale
+          await printerProvider.disconnect();
+          break;
+        }
 
         // Update progress for each copy
         final copyProgress = 80 + ((i + 1) / widget.copies * 20).toInt();
         setState(() => _progress = copyProgress);
       } catch (e) {
         success = false;
+        await printerProvider.disconnect();
         break;
       }
     }
@@ -133,19 +173,21 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.getBackground(isDark),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
+        title: Text(
           'STATUS PRINTER',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.5,
-            color: AppColors.textSecondary,
+            color: AppColors.getTextSecondary(isDark),
           ),
         ),
         centerTitle: true,
@@ -159,7 +201,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
               const Spacer(),
 
               // Animated printer icon
-              _buildAnimatedPrinterIcon(),
+              _buildAnimatedPrinterIcon(isDark),
 
               const SizedBox(height: 40),
 
@@ -178,9 +220,9 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
 
               Text(
                 _statusMessage,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  color: AppColors.textSecondary,
+                  color: AppColors.getTextSecondary(isDark),
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -190,7 +232,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
               // Progress section
               if (_status != PrintStatus.success &&
                   _status != PrintStatus.failed)
-                _buildProgressSection(),
+                _buildProgressSection(isDark),
 
               if (_status == PrintStatus.success) _buildSuccessIcon(),
 
@@ -259,7 +301,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
     }
   }
 
-  Widget _buildAnimatedPrinterIcon() {
+  Widget _buildAnimatedPrinterIcon(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -268,10 +310,10 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
           height: 160,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.white,
+            color: AppColors.getCardBackground(isDark),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primary.withOpacity(0.1),
+                color: AppColors.primary.withValues(alpha: 0.1),
                 blurRadius: 30,
                 spreadRadius: 10,
               ),
@@ -291,7 +333,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
                           ? 0
                           : _progress / 100,
                   strokeWidth: 4,
-                  backgroundColor: AppColors.border,
+                  backgroundColor: AppColors.getBorder(isDark),
                   valueColor: AlwaysStoppedAnimation<Color>(
                     _status == PrintStatus.failed
                         ? AppColors.error
@@ -307,7 +349,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
                     ? AppColors.success
                     : _status == PrintStatus.failed
                         ? AppColors.error
-                        : AppColors.primary.withOpacity(0.7),
+                        : AppColors.primary.withValues(alpha: 0.7),
               ),
             ],
           ),
@@ -316,17 +358,17 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
     );
   }
 
-  Widget _buildProgressSection() {
+  Widget _buildProgressSection(bool isDark) {
     return Column(
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               'Memproses',
               style: TextStyle(
                 fontSize: 14,
-                color: AppColors.textSecondary,
+                color: AppColors.getTextSecondary(isDark),
               ),
             ),
             Text(
@@ -344,7 +386,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
           borderRadius: BorderRadius.circular(4),
           child: LinearProgressIndicator(
             value: _progress / 100,
-            backgroundColor: AppColors.border,
+            backgroundColor: AppColors.getBorder(isDark),
             valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
             minHeight: 8,
           ),
@@ -357,7 +399,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.success.withOpacity(0.1),
+        color: AppColors.success.withValues(alpha: 0.1),
         shape: BoxShape.circle,
       ),
       child: const Icon(
@@ -372,7 +414,7 @@ class _PrintingStatusScreenState extends State<PrintingStatusScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.error.withOpacity(0.1),
+        color: AppColors.error.withValues(alpha: 0.1),
         shape: BoxShape.circle,
       ),
       child: const Icon(

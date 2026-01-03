@@ -24,7 +24,8 @@ class BluetoothPrinterService {
   }
 
   /// Request Bluetooth permissions for Android 12+
-  Future<bool> _requestBluetoothPermissions() async {
+  /// Returns true if all necessary permissions are granted
+  Future<bool> requestBluetoothPermissions() async {
     if (!Platform.isAndroid) return true;
 
     // Request all Bluetooth permissions for Android 12+
@@ -54,13 +55,28 @@ class BluetoothPrinterService {
     return (scanGranted && connectGranted) || locationGranted;
   }
 
+  /// Check if all required permissions have been granted without requesting
+  Future<bool> checkPermissionsGranted() async {
+    if (!Platform.isAndroid) return true;
+
+    final scanStatus = await Permission.bluetoothScan.status;
+    final connectStatus = await Permission.bluetoothConnect.status;
+    final locationStatus = await Permission.locationWhenInUse.status;
+
+    bool scanGranted = scanStatus.isGranted;
+    bool connectGranted = connectStatus.isGranted;
+    bool locationGranted = locationStatus.isGranted;
+
+    return (scanGranted && connectGranted) || locationGranted;
+  }
+
   Future<List<PrinterModel>> scanDevices(
       {Duration timeout = const Duration(seconds: 4)}) async {
     List<PrinterModel> printers = [];
 
     try {
-      // Request permissions first (critical for Snapdragon 685 / Android 12+)
-      final hasPermission = await _requestBluetoothPermissions();
+      // Check if permissions are granted (don't request every time)
+      final hasPermission = await checkPermissionsGranted();
       if (!hasPermission) {
         debugPrint('Bluetooth permissions not granted');
         return printers;

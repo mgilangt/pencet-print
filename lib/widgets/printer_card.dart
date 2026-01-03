@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
 import '../models/printer_model.dart';
+import '../providers/theme_provider.dart';
 
 class PrinterCard extends StatelessWidget {
   final PrinterModel printer;
@@ -16,16 +18,18 @@ class PrinterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.getCardBackground(isDark),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
+            color: isSelected ? AppColors.primary : AppColors.getBorder(isDark),
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -35,14 +39,14 @@ class PrinterCard extends StatelessWidget {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: AppColors.background,
+                color: AppColors.getBackground(isDark),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
                 Icons.print_rounded,
                 color: printer.isConnected
                     ? AppColors.primary
-                    : AppColors.textSecondary,
+                    : AppColors.getTextSecondary(isDark),
                 size: 24,
               ),
             ),
@@ -53,10 +57,10 @@ class PrinterCard extends StatelessWidget {
                 children: [
                   Text(
                     printer.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: AppColors.getTextPrimary(isDark),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -64,9 +68,9 @@ class PrinterCard extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     printer.address,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textLight,
+                      color: AppColors.getTextLight(isDark),
                     ),
                   ),
                 ],
@@ -77,7 +81,7 @@ class PrinterCard extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.1),
+                  color: AppColors.success.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Row(

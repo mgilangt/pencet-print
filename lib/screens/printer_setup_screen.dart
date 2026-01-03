@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
 import '../providers/printer_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/theme_provider.dart';
 import '../widgets/paper_size_selector.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/printer_card.dart';
+import '../widgets/custom_dialog.dart';
 
 class PrinterSetupScreen extends StatefulWidget {
   const PrinterSetupScreen({super.key});
@@ -14,7 +16,8 @@ class PrinterSetupScreen extends StatefulWidget {
   State<PrinterSetupScreen> createState() => _PrinterSetupScreenState();
 }
 
-class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
+class _PrinterSetupScreenState extends State<PrinterSetupScreen>
+    with WidgetsBindingObserver {
   String? _selectedPrinterAddress;
   bool _showAllDevices = false;
   static const int _initialDeviceCount = 5;
@@ -22,9 +25,73 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<SettingsProvider>().init();
+      _verifyAndAutoReconnect();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // App resumed - verify connection and auto-reconnect if needed
+      _verifyAndAutoReconnect();
+    }
+  }
+
+  /// Verify connection status when screen loads or resumes
+  /// If Bluetooth is available but not connected, try to auto-reconnect
+  Future<void> _verifyAndAutoReconnect() async {
+    final provider = context.read<PrinterProvider>();
+
+    // Check if Bluetooth is available
+    final isBluetoothOn = await provider.printerService.isBluetoothAvailable();
+
+    if (!isBluetoothOn) {
+      // Bluetooth is still off - nothing to do
+      return;
+    }
+
+    if (provider.isConnected) {
+      // Already marked as connected - verify it's still valid
+      final isValid = await provider.verifyConnection();
+
+      if (!isValid && mounted) {
+        // Connection was stale - now try to reconnect
+        debugPrint(
+            'PrinterSetupScreen: Connection stale, attempting auto-reconnect');
+        await _tryAutoReconnect();
+      }
+    } else {
+      // Not connected but Bluetooth is on - try to reconnect to last printer
+      debugPrint('PrinterSetupScreen: Bluetooth on, attempting auto-reconnect');
+      await _tryAutoReconnect();
+    }
+  }
+
+  /// Try to auto-reconnect to the last used printer
+  Future<void> _tryAutoReconnect() async {
+    final provider = context.read<PrinterProvider>();
+
+    // Auto-scan and reconnect
+    await provider.verifyAndReconnect();
+
+    if (mounted && provider.isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Terhubung ke ${provider.connectedPrinter!.name}'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
   }
 
   Future<void> _scanPrinters() async {
@@ -38,42 +105,124 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
     if (_selectedPrinterAddress == null) return;
 
     final provider = context.read<PrinterProvider>();
+
+    // First disconnect any existing connection to ensure clean state
+    if (provider.isConnected) {
+      await provider.disconnect();
+    }
+
     final printer = provider.availablePrinters.firstWhere(
       (p) => p.address == _selectedPrinterAddress,
     );
 
     final success = await provider.connectToPrinter(printer);
 
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Terhubung ke ${printer.name}'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Terhubung ke ${printer.name}'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal terhubung ke ${printer.name}. Coba lagi.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _testPrint() async {
     final provider = context.read<PrinterProvider>();
 
-    if (!provider.isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Hubungkan printer terlebih dahulu'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
+    // Verify actual connection first (not just variable state)
+    final isConnectionValid = await provider.verifyConnection();
+
+    if (!provider.isConnected || !isConnectionValid) {
+      if (!mounted) return;
+
+      // Check if Bluetooth is off
+      final isBluetoothOn =
+          await provider.printerService.isBluetoothAvailable();
+
+      if (!isBluetoothOn) {
+        CustomDialog.showError(
+          context: context,
+          title: 'Bluetooth Tidak Aktif!',
+          message: 'Nyalakan Bluetooth di HP Anda untuk melanjutkan.',
+          primaryButtonText: 'Mengerti',
+          secondaryButtonText: null,
+          onPrimaryPressed: () => Navigator.pop(context),
+        );
+      } else {
+        CustomDialog.showWarning(
+          context: context,
+          title: 'Printer Tidak Terhubung!',
+          message: 'Koneksi terputus. Scan dan hubungkan ulang printer.',
+          primaryButtonText: 'Scan Ulang',
+          primaryButtonIcon: Icons.search_rounded,
+          secondaryButtonText: 'Batalkan',
+          onPrimaryPressed: () {
+            Navigator.pop(context);
+            _scanPrinters();
+          },
+          onSecondaryPressed: () => Navigator.pop(context),
+        );
+      }
       return;
     }
 
+    // Try to print
     final success = await provider.testPrint();
 
     if (mounted) {
+      if (success) {
+        CustomDialog.showSuccess(
+          context: context,
+          title: 'Cetak Berhasil!',
+          message: 'Struk test sudah dicetak.',
+          buttonText: 'OK',
+        );
+      } else {
+        // Print failed - mark as disconnected and offer to reconnect
+        await provider.disconnect();
+
+        CustomDialog.showError(
+          context: context,
+          title: 'Cetak Gagal',
+          message: 'Koneksi printer terputus. Coba hubungkan ulang.',
+          primaryButtonText: 'Hubungkan Ulang',
+          secondaryButtonText: 'Batalkan',
+          onPrimaryPressed: () async {
+            Navigator.pop(context);
+            // Try to reconnect automatically
+            await _autoReconnect();
+          },
+          onSecondaryPressed: () => Navigator.pop(context),
+        );
+      }
+    }
+  }
+
+  /// Try to auto-reconnect to last used printer
+  Future<void> _autoReconnect() async {
+    final provider = context.read<PrinterProvider>();
+
+    // Scan first
+    await _scanPrinters();
+
+    // Try to reconnect
+    await provider.verifyAndReconnect();
+
+    if (mounted && provider.isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? 'Test print berhasil!' : 'Test print gagal'),
-          backgroundColor: success ? AppColors.success : AppColors.error,
+          content: Text('Terhubung ke ${provider.connectedPrinter!.name}'),
+          backgroundColor: AppColors.success,
         ),
       );
     }
@@ -120,16 +269,22 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.getBackground(isDark),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.getCardBackground(isDark),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: Icon(Icons.arrow_back_rounded,
+              color: AppColors.getTextPrimary(isDark)),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Printer Setup'),
+        title: Text(
+          'Printer Setup',
+          style: TextStyle(color: AppColors.getTextPrimary(isDark)),
+        ),
         centerTitle: true,
       ),
       body: Consumer<PrinterProvider>(
@@ -144,16 +299,16 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Connection Status
-                      const Text(
+                      Text(
                         'Status Koneksi',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
+                          color: AppColors.getTextSecondary(isDark),
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _buildConnectionStatus(printerProvider),
+                      _buildConnectionStatus(printerProvider, isDark),
 
                       const SizedBox(height: 24),
 
@@ -174,12 +329,12 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
+                          Text(
                             'Printer Tersedia',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
+                              color: AppColors.getTextSecondary(isDark),
                             ),
                           ),
                           TextButton.icon(
@@ -195,20 +350,20 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
                       const SizedBox(height: 8),
 
                       if (printerProvider.availablePrinters.isEmpty)
-                        _buildEmptyPrinters()
+                        _buildEmptyPrinters(isDark)
                       else
-                        _buildPrinterList(printerProvider),
+                        _buildPrinterList(printerProvider, isDark),
 
                       const SizedBox(height: 24),
 
                       // Paper size - ONLY show when connected
                       if (printerProvider.isConnected) ...[
-                        const Text(
+                        Text(
                           'Ukuran Kertas',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
+                            color: AppColors.getTextSecondary(isDark),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -221,11 +376,11 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
                           },
                         ),
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           'Pilih 58mm untuk printer thermal standar kecil',
                           style: TextStyle(
                             fontSize: 12,
-                            color: AppColors.textLight,
+                            color: AppColors.getTextLight(isDark),
                           ),
                         ),
                       ],
@@ -242,10 +397,10 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
                 alignment: Alignment.bottomCenter,
                 child: Container(
                   padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: AppColors.getCardBackground(isDark),
                     border: Border(
-                      top: BorderSide(color: AppColors.border),
+                      top: BorderSide(color: AppColors.getBorder(isDark)),
                     ),
                   ),
                   child: SafeArea(
@@ -259,6 +414,7 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
                               text: 'Test Print',
                               icon: Icons.print_rounded,
                               onPressed: _testPrint,
+                              isDark: isDark,
                             ),
                           ),
 
@@ -289,15 +445,16 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
     required String text,
     required IconData icon,
     required VoidCallback onPressed,
+    required bool isDark,
   }) {
     return SizedBox(
       height: 56,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: AppColors.textPrimary,
-          side: const BorderSide(color: AppColors.border, width: 1.5),
+          backgroundColor: AppColors.getCardBackground(isDark),
+          foregroundColor: AppColors.getTextPrimary(isDark),
+          side: BorderSide(color: AppColors.getBorder(isDark), width: 1.5),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -305,7 +462,7 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 20, color: AppColors.textSecondary),
+            Icon(icon, size: 20, color: AppColors.getTextSecondary(isDark)),
             const SizedBox(width: 8),
             Text(
               text,
@@ -320,7 +477,7 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
     );
   }
 
-  Widget _buildPrinterList(PrinterProvider printerProvider) {
+  Widget _buildPrinterList(PrinterProvider printerProvider, bool isDark) {
     final sortedDevices = _sortDevices(
       printerProvider.availablePrinters,
       printerProvider.connectedPrinter?.address,
@@ -380,16 +537,16 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
     );
   }
 
-  Widget _buildConnectionStatus(PrinterProvider provider) {
+  Widget _buildConnectionStatus(PrinterProvider provider, bool isDark) {
     final isConnected = provider.isConnected;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.getCardBackground(isDark),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.getBorder(isDark)),
       ),
       child: Column(
         children: [
@@ -398,8 +555,8 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
             height: 64,
             decoration: BoxDecoration(
               color: isConnected
-                  ? AppColors.success.withOpacity(0.1)
-                  : AppColors.error.withOpacity(0.1),
+                  ? AppColors.success.withValues(alpha: 0.1)
+                  : AppColors.error.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -416,7 +573,9 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: isConnected ? AppColors.success : AppColors.textPrimary,
+              color: isConnected
+                  ? AppColors.success
+                  : AppColors.getTextPrimary(isDark),
             ),
           ),
           const SizedBox(height: 4),
@@ -424,9 +583,9 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
             isConnected
                 ? provider.connectedPrinter!.name
                 : 'Tidak ada printer aktif. Scan untuk menghubungkan.',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
-              color: AppColors.textSecondary,
+              color: AppColors.getTextSecondary(isDark),
             ),
             textAlign: TextAlign.center,
           ),
@@ -435,36 +594,36 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen> {
     );
   }
 
-  Widget _buildEmptyPrinters() {
+  Widget _buildEmptyPrinters(bool isDark) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.getCardBackground(isDark),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.getBorder(isDark)),
       ),
-      child: const Column(
+      child: Column(
         children: [
           Icon(
             Icons.print_disabled_rounded,
             size: 48,
-            color: AppColors.textLight,
+            color: AppColors.getTextLight(isDark),
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           Text(
             'Tidak ada printer ditemukan',
             style: TextStyle(
               fontSize: 14,
-              color: AppColors.textSecondary,
+              color: AppColors.getTextSecondary(isDark),
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
             'Pastikan printer Bluetooth menyala\ndan berada dalam jangkauan',
             style: TextStyle(
               fontSize: 12,
-              color: AppColors.textLight,
+              color: AppColors.getTextLight(isDark),
             ),
             textAlign: TextAlign.center,
           ),

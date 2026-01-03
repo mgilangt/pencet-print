@@ -5,7 +5,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import '../config/app_colors.dart';
 import '../providers/printer_provider.dart';
+import '../providers/settings_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/file_service.dart';
+import '../widgets/custom_dialog.dart';
 import 'print_document_screen.dart';
 import 'printer_setup_screen.dart';
 
@@ -16,7 +19,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final FileService _fileService = FileService();
   StreamSubscription? _intentDataStreamSubscription;
   List<SharedMediaFile>? _sharedFiles;
@@ -24,17 +27,87 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Initialize printer provider
+
+    // Register lifecycle observer
+    WidgetsBinding.instance.addObserver(this);
+
+    // Initialize all providers
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<PrinterProvider>().init();
+      _initializeProviders();
     });
 
     // Initialize sharing intent listener
     _initSharingListener();
   }
 
+  /// Initialize all providers needed
+  Future<void> _initializeProviders() async {
+    final settingsProvider = context.read<SettingsProvider>();
+    final printerProvider = context.read<PrinterProvider>();
+
+    // Initialize settings first (paper size, etc.)
+    await settingsProvider.init();
+
+    // Initialize printer (scan and connect)
+    await printerProvider.init();
+
+    // Check Bluetooth status
+    await _checkBluetoothStatus();
+  }
+
+  /// Handle app lifecycle changes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.resumed) {
+      // App resumed from background - reload settings and verify connection
+      debugPrint(
+          'HomeScreen: App resumed, reloading settings and verifying connection');
+      _onAppResumed();
+    }
+  }
+
+  /// Called when app resumes from background
+  Future<void> _onAppResumed() async {
+    final settingsProvider = context.read<SettingsProvider>();
+    final printerProvider = context.read<PrinterProvider>();
+
+    // Reload settings from storage (in case they changed)
+    await settingsProvider.reload();
+
+    // Verify and potentially reconnect printer
+    await printerProvider.verifyAndReconnect();
+  }
+
+  /// Check Bluetooth status when app opens
+  Future<void> _checkBluetoothStatus() async {
+    final printerProvider = context.read<PrinterProvider>();
+    final bluetoothEnabled =
+        await printerProvider.printerService.isBluetoothAvailable();
+
+    if (!bluetoothEnabled && mounted) {
+      _showBluetoothOffAlert();
+    }
+  }
+
+  /// Show alert when Bluetooth is off
+  void _showBluetoothOffAlert() {
+    CustomDialog.showWarning(
+      context: context,
+      title: 'Bluetooth Mati',
+      message:
+          'Bluetooth belum dinyalakan. Nyalakan Bluetooth untuk dapat menghubungkan printer.',
+      primaryButtonText: 'Mengerti',
+      primaryButtonIcon: Icons.bluetooth_rounded,
+      secondaryButtonText: null,
+      onPrimaryPressed: () => Navigator.pop(context),
+    );
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _intentDataStreamSubscription?.cancel();
     super.dispose();
   }
@@ -90,6 +163,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickFileAndNavigate() async {
+    final printerProvider = context.read<PrinterProvider>();
+
+    // Check if Bluetooth is available/enabled
+    final bluetoothEnabled =
+        await printerProvider.printerService.isBluetoothAvailable();
+
+    if (!bluetoothEnabled) {
+      if (!mounted) return;
+      CustomDialog.showWarning(
+        context: context,
+        title: 'Bluetooth Tidak Aktif!',
+        message:
+            'Bluetooth belum dinyalakan. Nyalakan Bluetooth di HP Anda untuk melanjutkan.',
+        primaryButtonText: 'Mengerti',
+        primaryButtonIcon: Icons.check_rounded,
+        secondaryButtonText: null,
+        onPrimaryPressed: () => Navigator.pop(context),
+      );
+      return;
+    }
+
+    // Check if printer is connected
+    if (!printerProvider.isConnected) {
+      if (!mounted) return;
+      CustomDialog.showWarning(
+        context: context,
+        title: 'Printer Tidak Terhubung!',
+        message:
+            'Koneksi terputus. Pastikan printer menyala dan bluetooth di HP Anda sudah aktif.',
+        primaryButtonText: 'Mengerti',
+        primaryButtonIcon: Icons.check_rounded,
+        secondaryButtonText: 'Cek Pengaturan',
+        onPrimaryPressed: () => Navigator.pop(context),
+        onSecondaryPressed: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PrinterSetupScreen()),
+          );
+        },
+      );
+      return;
+    }
+
+    // All good, pick file
     final file = await _fileService.pickFile();
 
     if (file != null && mounted) {
@@ -103,8 +221,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.getBackground(isDark),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -115,29 +235,56 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Pencet Print',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {
-                      // Show app info dialog
-                      _showAppInfoDialog();
-                    },
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.border),
+                  // Left side: App name + Help icon
+                  Row(
+                    children: [
+                      Text(
+                        'Pencet Print',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.getTextPrimary(isDark),
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.help_outline_rounded,
-                        color: AppColors.textSecondary,
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _showAppInfoDialog,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: AppColors.getCardBackground(isDark),
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: AppColors.getBorder(isDark)),
+                          ),
+                          child: Icon(
+                            Icons.help_outline_rounded,
+                            color: AppColors.getTextSecondary(isDark),
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Right side: Dark mode toggle
+                  GestureDetector(
+                    onTap: () {
+                      context.read<ThemeProvider>().toggleTheme();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.getCardBackground(isDark),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.getBorder(isDark)),
+                      ),
+                      child: Icon(
+                        isDark
+                            ? Icons.light_mode_rounded
+                            : Icons.dark_mode_rounded,
+                        color: isDark
+                            ? AppColors.warning
+                            : AppColors.textSecondary,
                         size: 20,
                       ),
                     ),
@@ -157,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 16),
 
-              // 3. Main action card - Print Invoice
+              // 3. Main action card - Print
               _buildPrintInvoiceCard(),
 
               const Spacer(),
@@ -205,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Print Invoice',
+              'Print',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -254,6 +401,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildConnectPrinterCard() {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Consumer<PrinterProvider>(
       builder: (context, provider, _) {
         return InkWell(
@@ -266,9 +415,9 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppColors.getCardBackground(isDark),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: AppColors.getBorder(isDark)),
             ),
             child: Row(
               children: [
@@ -298,10 +447,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         provider.isConnected
                             ? 'Printer Terhubung'
                             : 'Hubungkan Printer',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
+                          color: AppColors.getTextPrimary(isDark),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -309,17 +458,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         provider.isConnected
                             ? provider.connectedPrinter!.name
                             : 'Bluetooth Setup & Config',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: AppColors.textSecondary,
+                          color: AppColors.getTextSecondary(isDark),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Icon(
+                Icon(
                   Icons.chevron_right_rounded,
-                  color: AppColors.textLight,
+                  color: AppColors.getTextLight(isDark),
                   size: 24,
                 ),
               ],
@@ -331,6 +480,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPrinterStatusBar() {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Consumer<PrinterProvider>(
       builder: (context, provider, _) {
         if (!provider.isConnected) return const SizedBox.shrink();
@@ -338,9 +489,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.getCardBackground(isDark),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: AppColors.getBorder(isDark)),
           ),
           child: Row(
             children: [
@@ -356,9 +507,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: Text(
                   '${provider.connectedPrinter!.name} Connected',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    color: AppColors.textPrimary,
+                    color: AppColors.getTextPrimary(isDark),
                   ),
                 ),
               ),
@@ -392,11 +543,11 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Text('1. Hubungkan printer Bluetooth terlebih dahulu'),
             SizedBox(height: 8),
-            Text('2. Ketuk "Print Invoice" untuk pilih file'),
+            Text('2. Ketuk "Print" untuk pilih file'),
             SizedBox(height: 8),
             Text('3. Pilih ukuran kertas (58mm atau 80mm)'),
             SizedBox(height: 8),
-            Text('4. Ketuk "PRINT INVOICE" untuk mencetak'),
+            Text('4. Ketuk "PRINT" untuk mencetak'),
           ],
         ),
         actions: [
@@ -446,15 +597,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHelpCard() {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return InkWell(
       onTap: _showHelpDialog,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.getCardBackground(isDark),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(color: AppColors.getBorder(isDark)),
         ),
         child: Row(
           children: [
@@ -472,7 +625,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(width: 16),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -481,23 +634,23 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: AppColors.getTextPrimary(isDark),
                     ),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
                     'Panduan penggunaan aplikasi',
                     style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.textSecondary,
+                      color: AppColors.getTextSecondary(isDark),
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.chevron_right_rounded,
-              color: AppColors.textLight,
+              color: AppColors.getTextLight(isDark),
               size: 24,
             ),
           ],

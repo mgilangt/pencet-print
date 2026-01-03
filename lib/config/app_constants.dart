@@ -4,7 +4,7 @@ class AppConstants {
   // App info
   static const String appName = 'Pencet Print';
   static const String appVersion = 'v1.0.0';
-  static const String appTagline = 'Simple Invoice Printing';
+  static const String appTagline = 'Sekali Pencet, Langsung Print';
 
   // Paper sizes (in mm)
   static const int paperSize58mm = 58;
@@ -18,4 +18,6 @@ class AppConstants {
   static const String keyLastPrinterMac = 'last_printer_mac';
   static const String keyLastPrinterName = 'last_printer_name';
   static const String keyDefaultPaperSize = 'default_paper_size';
+  static const String keyPermissionsGranted = 'permissions_granted';
+  static const String keyDarkMode = 'dark_mode';
 }

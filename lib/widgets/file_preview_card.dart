@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../config/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class FilePreviewCard extends StatelessWidget {
   final String fileName;
@@ -21,8 +23,9 @@ class FilePreviewCard extends StatelessWidget {
   String get _formattedSize {
     if (fileSize == null) return '';
     if (fileSize! < 1024) return '$fileSize B';
-    if (fileSize! < 1024 * 1024)
+    if (fileSize! < 1024 * 1024) {
       return '${(fileSize! / 1024).toStringAsFixed(1)} KB';
+    }
     return '${(fileSize! / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
@@ -37,12 +40,14 @@ class FilePreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<ThemeProvider>().isDarkMode;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.getCardBackground(isDark),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.getBorder(isDark)),
       ),
       child: Row(
         children: [
@@ -52,8 +57,8 @@ class FilePreviewCard extends StatelessWidget {
             height: 48,
             decoration: BoxDecoration(
               color: _isPdf
-                  ? Colors.red.withOpacity(0.1)
-                  : AppColors.primary.withOpacity(0.1),
+                  ? Colors.red.withValues(alpha: 0.1)
+                  : AppColors.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: _isImage && filePath != null
@@ -76,20 +81,20 @@ class FilePreviewCard extends StatelessWidget {
               children: [
                 Text(
                   fileName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: AppColors.getTextPrimary(isDark),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${_formattedSize}${addedTime != null ? ' • $addedTime' : ''}',
-                  style: const TextStyle(
+                  '$_formattedSize${addedTime != null ? ' • $addedTime' : ''}',
+                  style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.textSecondary,
+                    color: AppColors.getTextSecondary(isDark),
                   ),
                 ),
               ],
