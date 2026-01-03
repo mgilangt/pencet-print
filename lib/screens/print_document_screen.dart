@@ -12,6 +12,7 @@ import '../widgets/file_preview_card.dart';
 import '../widgets/paper_size_selector.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/custom_dialog.dart';
+import '../widgets/floating_toast.dart';
 import 'printing_status_screen.dart';
 import 'printer_setup_screen.dart';
 
@@ -27,7 +28,8 @@ class PrintDocumentScreen extends StatefulWidget {
   State<PrintDocumentScreen> createState() => _PrintDocumentScreenState();
 }
 
-class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
+class _PrintDocumentScreenState extends State<PrintDocumentScreen>
+    with WidgetsBindingObserver {
   final FileService _fileService = FileService();
 
   late PlatformFile _currentFile;
@@ -38,8 +40,61 @@ class _PrintDocumentScreenState extends State<PrintDocumentScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentFile = widget.file;
     _loadPreview();
+
+    // Reload settings to ensure paper size is correct
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SettingsProvider>().reload();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // App resumed - verify and auto-reconnect if needed
+      _verifyAndAutoReconnect();
+    }
+  }
+
+  /// Verify connection and auto-reconnect when BT turns back on
+  Future<void> _verifyAndAutoReconnect() async {
+    final provider = context.read<PrinterProvider>();
+    final isBluetoothOn = await provider.printerService.isBluetoothAvailable();
+
+    if (!isBluetoothOn) return;
+
+    // Reload settings first
+    await context.read<SettingsProvider>().reload();
+
+    // Check connection
+    if (provider.isConnected) {
+      final isValid = await provider.verifyConnection();
+      if (!isValid && mounted) {
+        FloatingToast.loading(context, 'Menghubungkan ulang printer...');
+        await provider.verifyAndReconnect();
+
+        if (mounted && provider.isConnected) {
+          FloatingToast.success(
+              context, 'Terhubung ke ${provider.connectedPrinter!.name}');
+        }
+      }
+    } else {
+      // Try to reconnect
+      await provider.verifyAndReconnect();
+      if (mounted && provider.isConnected) {
+        FloatingToast.success(
+            context, 'Terhubung ke ${provider.connectedPrinter!.name}');
+      }
+    }
   }
 
   Future<void> _loadPreview() async {

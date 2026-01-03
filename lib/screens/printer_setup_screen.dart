@@ -8,6 +8,7 @@ import '../widgets/paper_size_selector.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/printer_card.dart';
 import '../widgets/custom_dialog.dart';
+import '../widgets/floating_toast.dart';
 
 class PrinterSetupScreen extends StatefulWidget {
   const PrinterSetupScreen({super.key});
@@ -56,7 +57,11 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen>
     final isBluetoothOn = await provider.printerService.isBluetoothAvailable();
 
     if (!isBluetoothOn) {
-      // Bluetooth is still off - nothing to do
+      // Bluetooth is still off - show alert
+      if (mounted) {
+        FloatingToast.error(context, 'Bluetooth tidak aktif',
+            icon: Icons.bluetooth_disabled_rounded);
+      }
       return;
     }
 
@@ -65,7 +70,9 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen>
       final isValid = await provider.verifyConnection();
 
       if (!isValid && mounted) {
-        // Connection was stale - now try to reconnect
+        // Connection was stale - show alert and try to reconnect
+        FloatingToast.loading(
+            context, 'Koneksi terputus, menghubungkan ulang...');
         debugPrint(
             'PrinterSetupScreen: Connection stale, attempting auto-reconnect');
         await _tryAutoReconnect();
@@ -84,13 +91,11 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen>
     // Auto-scan and reconnect
     await provider.verifyAndReconnect();
 
-    if (mounted && provider.isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Terhubung ke ${provider.connectedPrinter!.name}'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+    if (mounted) {
+      if (provider.isConnected) {
+        FloatingToast.success(
+            context, 'Terhubung ke ${provider.connectedPrinter!.name}');
+      }
     }
   }
 
@@ -119,19 +124,10 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen>
 
     if (mounted) {
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Terhubung ke ${printer.name}'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        FloatingToast.success(context, 'Terhubung ke ${printer.name}');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal terhubung ke ${printer.name}. Coba lagi.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        FloatingToast.error(
+            context, 'Gagal terhubung ke ${printer.name}. Coba lagi.');
       }
     }
   }
@@ -219,23 +215,15 @@ class _PrinterSetupScreenState extends State<PrinterSetupScreen>
     await provider.verifyAndReconnect();
 
     if (mounted && provider.isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Terhubung ke ${provider.connectedPrinter!.name}'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+      FloatingToast.success(
+          context, 'Terhubung ke ${provider.connectedPrinter!.name}');
     }
   }
 
   void _saveSettings() {
+    FloatingToast.success(context, 'Pengaturan disimpan',
+        icon: Icons.save_rounded);
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Pengaturan disimpan'),
-        backgroundColor: AppColors.success,
-      ),
-    );
   }
 
   List<dynamic> _sortDevices(List<dynamic> devices, String? lastUsedAddress) {
