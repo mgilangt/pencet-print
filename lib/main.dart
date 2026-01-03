@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'services/analytics_service.dart';
 import 'providers/printer_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash_screen.dart';
 import 'config/app_colors.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const PencetPrintApp());
 }
 
@@ -38,6 +41,9 @@ class PencetPrintApp extends StatelessWidget {
             title: 'Pencet Print',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,
+
+            // Firebase Analytics screen tracking
+            navigatorObservers: [AnalyticsService.observer],
 
             // Light Theme
             theme: ThemeData(

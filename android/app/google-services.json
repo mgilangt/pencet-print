@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "617511921390",
+    "project_id": "pencet-print",
+    "storage_bucket": "pencet-print.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:617511921390:android:7ca4265dfc3630b6b0b5ff",
+        "android_client_info": {
+          "package_name": "id.manava.pencetprint"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCRlp61ORqMq8Sh8ZyZEpyohyxjCnEj5VU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
